@@ -23,3 +23,4 @@ export interface CategoryIntro {
 export type FlowItem =
   | { kind: "intro";    data: CategoryIntro }
   | { kind: "question"; data: Question }
+  | { kind: "results";  data: null }
