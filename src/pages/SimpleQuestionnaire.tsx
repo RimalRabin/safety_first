@@ -1,10 +1,13 @@
 import { useState, useMemo } from "react"
-import { useQuestions }        from "@/hooks/useQuestions"
-import { Header }              from "@/components/Header"
-import { StepDots }            from "@/components/StepDots"
-import { QuestionCard }        from "@/components/QuestionCard"
-import { Navigation }          from "@/components/Navigation"
-import { CategoryIntroCard }   from "@/components/CategoryIntroCard"
+import { useQuestions }       from "@/hooks/useQuestions"
+import { Header }             from "@/components/Header"
+import { QuestionNav }        from "@/components/QuestionNav"
+import { QuestionCard }       from "@/components/QuestionCard"
+import { Navigation }         from "@/components/Navigation"
+import { CategoryIntroCard }  from "@/components/CategoryIntroCard"
+import { ResultsScreen }      from "@/components/ResultsScreen"
+
+const CATEGORIES = ["organisational", "people", "physical", "technological"]
 
 export const SimpleQuestionnaire = (): JSX.Element => {
   const [currentIndex, setCurrentIndex] = useState<number>(0)
@@ -14,51 +17,84 @@ export const SimpleQuestionnaire = (): JSX.Element => {
 
   const currentItem = flowItems[currentIndex]
 
-  // Pool questions only — for progress tracking
+  // ── pool question metadata ─────────────────────────────────────────────────
   const poolItems = useMemo(
-    () => flowItems.filter(item => item.kind === "question" && item.data.type === "pool"),
+    () => flowItems.filter(
+      item => item.kind === "question" && item.data.type === "pool"
+    ),
     [flowItems]
   )
 
-  const poolItemsBefore = useMemo(
+  const poolQuestionIds = useMemo(
+    () => poolItems.map(item => item.kind === "question" ? item.data.id : ""),
+    [poolItems]
+  )
+
+  const poolItemsBeforeCurrent = useMemo(
     () => flowItems.slice(0, currentIndex).filter(
       item => item.kind === "question" && item.data.type === "pool"
     ),
     [flowItems, currentIndex]
   )
 
-  const isScreeningPhase = currentItem?.kind === "question"
+  const currentPoolIndex  = poolItemsBeforeCurrent.length
+  const totalPoolQuestions = poolItems.length
+
+  // ── determine phases ───────────────────────────────────────────────────────
+  const isResultsScreen = currentItem?.kind === "results"
+
+  const isScreening = currentItem?.kind === "question"
     ? currentItem.data.type === "screening"
     : currentItem?.kind === "intro"
     ? true
     : false
 
-  const totalPoolQuestions  = poolItems.length
-  const currentPoolQuestion = poolItemsBefore.length + 1
-  const progressPercent     = totalPoolQuestions > 0
-    ? Math.round((poolItemsBefore.length / totalPoolQuestions) * 100)
+  // Which category intro we are on during screening (0-3)
+  const screeningCategoryIndex = useMemo(() => {
+    if (!isScreening) return 0
+    const cat = currentItem?.kind === "question"
+      ? currentItem.data.category
+      : currentItem?.kind === "intro"
+      ? currentItem.data.category
+      : null
+    return cat ? Math.max(0, CATEGORIES.indexOf(cat)) : 0
+  }, [currentItem, isScreening])
+
+  // ── progress ───────────────────────────────────────────────────────────────
+  const progressPercent = isScreening || isResultsScreen
+    ? 0
+    : totalPoolQuestions > 0
+    ? Math.round((currentPoolIndex / totalPoolQuestions) * 100)
     : 0
 
+  // ── selected answer for current question ───────────────────────────────────
   const selectedAnswer = currentItem?.kind === "question"
     ? answers[currentItem.data.id] ?? ""
     : ""
 
+  // ── back lock: disable back if previous item was an intro card ─────────────
+  const prevItemIsIntro  = currentIndex > 0 && flowItems[currentIndex - 1]?.kind === "intro"
+  const backDisabled     = currentIndex === 0 || prevItemIsIntro || isResultsScreen
+
+  // ── next disabled ──────────────────────────────────────────────────────────
+  const nextDisabled = currentItem?.kind === "question" && !selectedAnswer
+
   // ── handlers ──────────────────────────────────────────────────────────────
   const handleSelectAnswer = (answerId: string) => {
     if (currentItem?.kind !== "question") return
-    setAnswers((prev) => ({ ...prev, [currentItem.data.id]: answerId }))
+    setAnswers(prev => ({ ...prev, [currentItem.data.id]: answerId }))
   }
 
   const handleNext = () => {
-    if (currentItem?.kind === "intro") {
-      setCurrentIndex((prev) => prev + 1)
+    if (currentItem?.kind === "intro" || currentItem?.kind === "results") {
+      setCurrentIndex(prev => prev + 1)
       return
     }
 
     if (currentItem?.kind !== "question" || !selectedAnswer) return
 
+    // Conditional routing
     const nextId = currentItem.data.conditionalNext?.[selectedAnswer]
-
     if (nextId) {
       const nextIndex = flowItems.findIndex(
         item => item.kind === "question" && item.data.id === nextId
@@ -70,21 +106,35 @@ export const SimpleQuestionnaire = (): JSX.Element => {
     }
 
     if (currentIndex < flowItems.length - 1) {
-      setCurrentIndex((prev) => prev + 1)
+      setCurrentIndex(prev => prev + 1)
     }
   }
 
   const handleBack = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex((prev) => prev - 1)
+    if (backDisabled) return
+    setCurrentIndex(prev => prev - 1)
+  }
+
+  // Jump to a specific pool question by pool index
+  const handleJumpToPool = (poolIndex: number) => {
+    const targetId = poolQuestionIds[poolIndex]
+    if (!targetId) return
+    const targetFlowIndex = flowItems.findIndex(
+      item => item.kind === "question" && item.data.id === targetId
+    )
+    if (targetFlowIndex !== -1) {
+      setCurrentIndex(targetFlowIndex)
     }
   }
 
-  // ── loading ───────────────────────────────────────────────────────────────
+  // ── loading ────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="min-h-screen bg-[#0a2540] flex items-center justify-center">
-        <span className="text-white/70 text-lg">Loading questions...</span>
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-4 border-white/20 border-t-[#00bfa5] rounded-full animate-spin" />
+          <span className="text-white/70 text-base">Loading your assessment...</span>
+        </div>
       </div>
     )
   }
@@ -97,58 +147,77 @@ export const SimpleQuestionnaire = (): JSX.Element => {
     )
   }
 
-  // ── render ────────────────────────────────────────────────────────────────
+  // ── main render ────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#0a2540] flex flex-col font-['Inter',Helvetica]">
+    <div className="min-h-screen bg-[#0a2540] flex flex-col font-['Inter',Helvetica] relative">
 
-      <Header
-        currentIndex={isScreeningPhase ? 0 : currentPoolQuestion - 1}
-        totalQuestions={isScreeningPhase ? 0 : totalPoolQuestions}
-        progressPercent={isScreeningPhase ? 0 : progressPercent}
-        isScreening={isScreeningPhase}
+      {/* Security background pattern */}
+      <img
+        src="/figmaAssets/subtle-security-pattern-with-flags-1.png"
+        alt=""
+        className="absolute inset-0 w-full h-full object-cover opacity-10 pointer-events-none select-none"
+        aria-hidden="true"
       />
 
-      {/* Only show step dots during pool phase */}
-      {!isScreeningPhase && (
-        <StepDots
-          totalQuestions={totalPoolQuestions}
-          currentIndex={currentPoolQuestion - 1}
-          answeredIds={Object.keys(answers)}
-          questionIds={poolItems.map(
-            item => item.kind === "question" ? item.data.id : ""
-          )}
-          onDotClick={() => {}}
+      {/* Content sits above background */}
+      <div className="relative z-10 flex flex-col flex-1">
+
+        <Header
+          currentIndex={isScreening || isResultsScreen ? 0 : currentPoolIndex}
+          totalQuestions={isScreening || isResultsScreen ? 0 : totalPoolQuestions}
+          progressPercent={progressPercent}
+          isScreening={isScreening || isResultsScreen}
         />
-      )}
 
-      <main className="flex-1 flex items-start justify-center px-6 py-8">
-        <div className="w-full max-w-2xl flex flex-col">
+        {/* Question nav — hidden on results screen */}
+        {!isResultsScreen && (
+          <QuestionNav
+            isScreening={isScreening}
+            totalPool={totalPoolQuestions}
+            currentPoolIndex={currentPoolIndex}
+            answeredPoolIds={Object.keys(answers).filter(id =>
+              poolQuestionIds.includes(id)
+            )}
+            poolQuestionIds={poolQuestionIds}
+            onJump={handleJumpToPool}
+            categoryIndex={screeningCategoryIndex}
+          />
+        )}
 
-          {currentItem.kind === "intro" ? (
-            <CategoryIntroCard
-              intro={currentItem.data}
-              onStart={handleNext}
-            />
-          ) : (
-            <>
-              <QuestionCard
-                question={currentItem.data}
-                selectedAnswer={selectedAnswer}
-                onSelectAnswer={handleSelectAnswer}
+        <main className="flex-1 flex items-start justify-center px-6 py-8">
+          <div className="w-full max-w-2xl flex flex-col">
+
+            {isResultsScreen ? (
+              <ResultsScreen
+                answers={answers}
+                flowItems={flowItems}
               />
-              <Navigation
-                currentIndex={currentIndex}
-                totalQuestions={flowItems.length}
-                selectedAnswer={selectedAnswer}
-                onBack={handleBack}
-                onNext={handleNext}
+            ) : currentItem.kind === "intro" ? (
+              <CategoryIntroCard
+                intro={currentItem.data}
+                onStart={handleNext}
               />
-            </>
-          )}
+            ) : (
+              <>
+                <QuestionCard
+                  question={currentItem.data}
+                  selectedAnswer={selectedAnswer}
+                  onSelectAnswer={handleSelectAnswer}
+                />
+                <Navigation
+                  backDisabled={backDisabled}
+                  nextDisabled={nextDisabled}
+                  onBack={handleBack}
+                  onNext={handleNext}
+                  isLastItem={currentIndex === flowItems.length - 2}
+                />
+              </>
+            )}
 
-        </div>
-      </main>
+          </div>
+        </main>
 
+      </div>
     </div>
   )
 }
