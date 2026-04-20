@@ -11,3 +11,15 @@ export interface Question {
   options: AnswerOption[]
   conditionalNext?: Record<string, string>
 }
+
+export type Category = "organisational" | "people" | "physical" | "technological"
+
+export interface CategoryIntro {
+  category: Category
+  title: string
+  description: string
+}
+
+export type FlowItem =
+  | { kind: "intro";    data: CategoryIntro }
+  | { kind: "question"; data: Question }
