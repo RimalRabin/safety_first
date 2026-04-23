@@ -155,7 +155,7 @@ export const SimpleQuestionnaire = (): JSX.Element => {
       <img
         src="/figmaAssets/subtle-security-pattern-with-flags-1.png"
         alt=""
-        className="absolute inset-0 w-full h-full object-cover opacity-10 pointer-events-none select-none"
+        className="absolute inset-0 w-full h-full object-cover opacity-50 pointer-events-none select-none"
         aria-hidden="true"
       />
 
